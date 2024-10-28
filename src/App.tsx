@@ -1,10 +1,10 @@
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext, useEffect, useCallback, useMemo } from 'react';
 import { CurrencyExchangeProvider, CurrencyExchangeContext } from './context/CurrencyExchangeContext';
 import Converter from './components/Converter';
 import History from './components/History';
 import CurrencyToggle from './components/CurrencyToggle';
 import styled, { createGlobalStyle, css, keyframes } from 'styled-components';
-import  { formatDate } from './utils/formatDate';
+import { formatDate } from './utils/formatDate';
 
 interface HistoryEntry {
   realRate: number;
@@ -108,78 +108,89 @@ const App: React.FC = () => {
   const [isCurrencyToggleEnabled, setIsCurrencyToggleEnabled] = useState<boolean>(true);
 
 
-
+  // on fait appel au context
   const context = useContext(CurrencyExchangeContext);
+  // Si pas de context on émet une erreur
   if (!context) {
-    throw new Error('CurrencyExchangeContext must be used within a CurrencyExchangeProvider');
+    throw new Error('CurrencyExchangeContext doit être utilisé dans un CurrencyExchangeProvider');
   }
   const { isFixedRate, fixedRate } = context;
 
+  // Fonction qui gère l'action du Switch
   const handleSwitchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setIsEUR(event.target.checked);
     setAmount(convertedAmount);
   };
 
+  // Fonction qui écoute le changement sur les inputs montant initial et converti provenant du composant Converter
   const handleAmountChange = (newAmount: string, converted: string) => {
     setAmount(newAmount);
     setConvertedAmount(converted);
   };
 
-
+  // Fonction qui écoute le changement sur l'input du taux fixé 
   const handleFixedRateChange = (isFixedRate: boolean, fixedRate: number) => {
     setIsFixedRateEnabled(isFixedRate);
     setSelectedFixedRate(fixedRate);
   };
 
-
-  const handleAddToHistory = () => {
-    if (!amount || !convertedAmount) return;
-    const newEntry: HistoryEntry = {
-      realRate: currentRate,
-      fixedRate: isFixedRateEnabled ? selectedFixedRate : '-',
-      initialValue: amount,
-      initialCurrency: isEUR ? 'EUR' : 'USD',
-      convertedValue: convertedAmount,
-      convertedCurrency: isEUR ? 'USD' : 'EUR',
-    };
-
-    setHistory((prevHistory) => {
-      const existingIndex = prevHistory.findIndex(
-        (entry) =>
-          entry.initialValue === newEntry.initialValue &&
-          entry.initialCurrency === newEntry.initialCurrency &&
-          entry.fixedRate === newEntry.fixedRate
-      );
-
-      if (existingIndex !== -1) {
-        const updatedHistory = [...prevHistory];
-        updatedHistory[existingIndex] = {
-          ...updatedHistory[existingIndex],
-          convertedValue: convertedAmount,
-          realRate: currentRate,
-          fixedRate: isFixedRateEnabled ? selectedFixedRate : '-',
-        };
-        return updatedHistory;
-      } else {
-        return [newEntry, ...prevHistory].slice(0, 5);
-      }
-    });
-  };
+  // Fonction qui gère l'historique
+  const handleAddToHistory = useCallback(
+    () => {
+      if (!amount || !convertedAmount) return;
+      const newEntry: HistoryEntry = {
+        realRate: currentRate,
+        fixedRate: isFixedRateEnabled ? selectedFixedRate : '-',
+        initialValue: amount,
+        initialCurrency: isEUR ? 'EUR' : 'USD',
+        convertedValue: convertedAmount,
+        convertedCurrency: isEUR ? 'USD' : 'EUR',
+      };
+  
+      setHistory((prevHistory) => {
+        const existingIndex = prevHistory.findIndex(
+          (entry) =>
+            entry.initialValue === newEntry.initialValue &&
+            entry.initialCurrency === newEntry.initialCurrency &&
+            entry.fixedRate === newEntry.fixedRate
+        );
+  
+        if (existingIndex !== -1) {
+          const updatedHistory = [...prevHistory];
+          updatedHistory[existingIndex] = {
+            ...updatedHistory[existingIndex],
+            convertedValue: convertedAmount,
+            realRate: currentRate,
+            fixedRate: isFixedRateEnabled ? selectedFixedRate : '-',
+          };
+          return updatedHistory;
+        } else {
+          return [newEntry, ...prevHistory].slice(0, 5);
+        }
+      });
+    },
+    [amount, convertedAmount, currentRate, isEUR, isFixedRateEnabled, selectedFixedRate] 
+);
 
   // Appeler handleAddToHistory après la mise à jour de convertedAmount
   useEffect(() => {
     if (convertedAmount) {
       handleAddToHistory(); // On déclenche cet appel pour faire greffer immédiatement le résultat history
     }
-  }, [convertedAmount]);
+  }, [convertedAmount, handleAddToHistory]);
 
-  const updateRateRandomly = () => {
+  // Fonction qui permet de faire des mises à jour aléatoires entre -0.05 et +0.05 comme défini dans le besoin
+
+const updateRateRandomly = useCallback(
+  () => {
     if (!isFixedRate) {
       const randomChange = Math.random() * 0.1 - 0.05; // Valeur aléatoire entre -0.05 et +0.05
       setCurrentRate((prevRate) => Math.max(0.01, prevRate + randomChange));
     }
-  };
-
+  },
+  [isFixedRate] 
+);
+  // hook UseEffect pour déclencher la mise à jour automatique chaque 3 secondes en faisant appel à la fonction updateRateRandomly()
   useEffect(() => {
     if (conversionActive && !isFixedRateEnabled) {
       const interval = setInterval(() => {
@@ -196,11 +207,10 @@ const App: React.FC = () => {
 
       return () => clearInterval(interval);
     }
-  }, [conversionActive, currentRate, isFixedRateEnabled, fixedRate, amount, isEUR]);
+  }, [conversionActive, currentRate, isFixedRateEnabled, fixedRate, amount, isEUR, updateRateRandomly]);
 
+  // UseEffect qui renvoie le currentRate à sa valeur correspondante au Toggle ( EUR ou USD )
   useEffect(() => {
-
-
     if (!isCurrencyToggleEnabled) {
       setCurrentRate(0.9); // Lorsque le toggle est désactivé, le taux devient 0.9
     } else {
@@ -223,20 +233,22 @@ const App: React.FC = () => {
   }, []);
 
   const formattedDate = formatDate(currentDate);
-  const lines = [
-    "Ce convertisseur s'actualise chaque 3 secondes",
-    "Vous pouvez aussi appliquer un taux fixe si taux < 2%"
-  ];
+ 
+  const lines = useMemo(
+    () => [
+      "Ce convertisseur s'actualise chaque 3 secondes",
+      "Vous pouvez aussi appliquer un taux fixe si taux < 2%"
+    ],
+    []
+  );
   const displayedRate = isFixedRate ? fixedRate : currentRate.toFixed(4);
   const inverseRate = isEUR ? displayedRate : Number(1 / Number(displayedRate)).toFixed(4);
   const rateInfo = `Le taux de change actuel est de 1 ${isEUR ? 'EUR' : 'USD'} = ${inverseRate} ${isEUR ? 'USD' : 'EUR'}`;
 
-
-
-
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
   const [displayedLines, setDisplayedLines] = useState<string[]>([]);
 
+  // Pour générer des lignes animées
   useEffect(() => {
     if (currentLineIndex < lines.length) {
       const currentLine = lines[currentLineIndex];
@@ -249,7 +261,7 @@ const App: React.FC = () => {
 
       return () => clearTimeout(showLineTimeout);
     }
-  }, [currentLineIndex]);
+  }, [currentLineIndex, lines]);
 
   return (
     <CurrencyExchangeProvider>
@@ -258,7 +270,6 @@ const App: React.FC = () => {
         <ConverterWrapper>
           <Title>Convertisseur EUR/USD</Title>
           <p>Aujourd'hui, nous sommes le {formattedDate}.</p>
-          
           {displayedLines.map((line, index) => (
             <LineWrapper
               key={index}
@@ -268,17 +279,13 @@ const App: React.FC = () => {
               {line}
             </LineWrapper>
           ))}
-
-<InfoBlock>
-        {rateInfo}
-      </InfoBlock>
-
+          <InfoBlock>
+            {rateInfo}
+          </InfoBlock>
           <div>
             <CurrencyToggle
               isEUR={isEUR}
               handleSwitchChange={handleSwitchChange}
-
-
             />
             <Converter
               isEUR={isEUR}
@@ -291,7 +298,6 @@ const App: React.FC = () => {
           </div>
         </ConverterWrapper>
       </CenteredContainer>
-
     </CurrencyExchangeProvider>
   );
 };
